@@ -1,0 +1,36 @@
+#ECP BREARD
+
+This pipeline builds a simple 2-D bed (rectangular domain) with no-flux/impermeable walls on its boundaries, runs your model to produce pressure fields, summarizes those to CSV/PNG, and compares the resulting time series with a first-term diffusion law. This serves as a validation of the IMEX Pore pressure diffusion implementation.
+
+# - Needs scripts in this repo:
+  - create_example_Roche_static.py  (geometry/static fields)
+  - pressure_summary_nc.py          (NetCDF → CSV/PNG summary)
+  - pore_pressure_theory_csv.py     (CSV ↔ diffusion theory overlay)
+
+# 1) Geometry/static fields (builds a 2-D bed with no-flux walls)
+nx ny  x_min x_max  y_min y_max   bed_xmin bed_xmax bed_ymin bed_ymax   H0 alfas  N  plot_flag
+Example: python create_example_Roche_static.py \
+  10 10 0.0 0.2 0.0 0.15  0.0 0.2 0.0 0.15  0.4 0.6 300 false
+
+This generates the *inp file and the topography and a restart file. 
+
+# 2) Run your model:
+Create a symbolic link first
+
+ln -s ../../bin/IMEX_SfloW2D .
+
+Then run the solver
+
+./IMEX_SfloW2D 
+
+This will generate example2D.nc
+
+# 3) Summarize pore pressure from the NetCDF (writes PNG + CSV)
+python3 pressure_summary_nc.py example2D.nc
+
+# 4) Compare the CSV time series with the first-term diffusion law from a Heat Diffusion like in Gueugneau et al. 2017 GRL (thickness h=0.4 m)
+python3 pore_pressure_theory_csv.py 2.052653E-01 example2D_excess_timeseries.csv 0.4
+
+This creates excess_diffusion_fit_from_csv.png and excess_diffusion_fit_from_csv.csv files showing the comparison between IMEX and the theory. 
+
+
