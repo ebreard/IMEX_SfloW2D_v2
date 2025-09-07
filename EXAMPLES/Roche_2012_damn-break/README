@@ -1,111 +1,32 @@
-# Dam‑break example — setup + post‑processing
+ECP BREARD — Dam-break example (channel)
 
-This example sets up and analyses a **2‑D dam‑break** in a long, narrow channel:
-- A rectangular **dam/block** of thickness `bed_length` (x) and height `bed_height` (z) initially sits at the **left** of the channel.
-- The channel is bounded by **no‑flux walls** laterally (vertical z‑walls) and has **no‑flux at the right end in x**.
-- You control the **channel length** (e.g., 3 m) while keeping a bed of e.g. **0.2 m thickness**, **0.4 m height**, and **0.15 m width**.
+This sets up a 2-D dam-break in a long rectangular channel with no-flux side walls (lateral) and no-flux at the right boundary, runs IMEX to produce a NetCDF, and post-processes the centreline flow height to PNGs and a movie (equal x–y scale, grey fill under the surface, blue outline).
 
-The post‑processor plots the **flow height along the channel centreline** (line in the XY plane at a fixed y; if `Y` is vertical in your setup, the centreline is the mid‑row in the grid). It shades the area **under the current free‑surface** in darker grey with mild transparency, draws the domain bounds, stamps the **real time** on each PNG, and (optionally) creates an **MP4** (or **GIF** fallback) animation.
+Scripts used: create_dambreak_static.py (setup + IMEX_SfloW2D.inp), height_summary_nc.py (centreline height → PNGs + MP4/GIF), clean_folder.py (optional tidy), IMEX_SfloW2D.template (input template).
 
----
+Setup script arguments (create_dambreak_static.py): channel-length (m) = total x-length; channel-width (m) = y-width; nx, ny = grid cells; bed-length (m) = initial dam thickness in x; bed-height (m) = initial dam height in z; run-name = output stem.
 
-## Files in this folder
+Generate setup (example: 3.0 m channel, 0.15 m width, dam 0.20 m × 0.40 m at the left)
+python create_dambreak_static.py --channel-length 3.0 --channel-width 0.15 --nx 600 --ny 60 --bed-length 0.20 --bed-height 0.40 --run-name dambreak2D
+Writes: IMEX_SfloW2D.inp, topography_dem.asc, example_2D_0000.q_2d (and a preview PNG).
 
-- `create_dambreak_static.py` — build DEM/restart/`IMEX_SfloW2D.inp` for a dam‑break in a rectangular channel (no‑flux walls in z; no‑flux at x‑right).  
-- `height_summary_nc.py` — post‑process NetCDF: centreline height plots (PNG per output time) + optional MP4/GIF.
-- `clean_folder.py` — safe cleaner; keeps `IMEX*` solver (not `.inp`), `*.py`, `*.template`, `README*`; deletes the rest (with confirmation).
-- `IMEX_SfloW2D.template` — base template filled by the setup script.
-- (after you run the setup) `IMEX_SfloW2D.inp`, `topography_dem.asc`, `example_2D_0000.q_2d`.
-- (after you run the solver) `dambreak2D.nc` + snapshots `dambreak2D_*.p_2d` (names depend on RUN_NAME).
+Link solver in this folder (once)
+ln -s ../../bin/IMEX_SfloW2D .
 
----
-
-## Requirements
-
-- Python ≥ 3.9 with: `numpy`, `matplotlib`, **either** `netCDF4` **or** `h5py`.
-- For movie export: `imageio`, `imageio-ffmpeg`. System ffmpeg is recommended.
-  ```bash
-  pip install -U numpy matplotlib netCDF4 h5py imageio "imageio[ffmpeg]"
-  # Ubuntu/WSL system ffmpeg (optional but recommended)
-  sudo apt-get update && sudo apt-get install -y ffmpeg
-  ```
-
----
-
-## Quickstart (copy/paste)
-
-### 1) Generate the dam‑break setup
-Run `--help` to see all knobs, then use the example values below (3 m channel, 0.15 m width, 0.2 m dam thickness, 0.4 m height):
-
-```bash
-# show options
-python create_dambreak_static.py --help
-
-# example: 3.0 m long channel, 0.15 m width; dam: 0.2 m (x) × 0.4 m (z) at the left
-python create_dambreak_static.py   --channel-length 3.0   --channel-width 0.15   --nx 600 --ny 60   --bed-length 0.20   --bed-height 0.40   --run-name dambreak2D
-```
-
-This writes:
-- `IMEX_SfloW2D.inp` (filled from template, with proper boundaries: no‑flux in z, no‑flux at x‑right),
-- `topography_dem.asc` (flat DEM),
-- `example_2D_0000.q_2d` (initial state),
-- `initial_bed.png` (preview).
-
-> Adjust `--nx/--ny` for resolution (Δx ≈ channel_length/nx).
-
-### 2) Run the solver
-```bash
+Run the solver with the input file produced by setup
 ./IMEX_SfloW2D IMEX_SfloW2D.inp
-# or your runner; will write dambreak2D.nc (based on --run-name)
-```
+Produces: dambreak2D.nc (plus snapshots).
 
-### 3) Post‑process: centreline height + movie
-```bash
-# Draws darker‑grey fill under height curve, boundary box, and real time on each PNG
+Post-process: centreline height along y = center_fraction (0=bottom, 0.5=mid, 1=top); add --animate for a movie
 python height_summary_nc.py dambreak2D.nc --center_fraction 0.5 --animate
-```
-Outputs:
-- `frames/dambreak2D_hcenter_####.png`
-- `dambreak2D_height_movie.mp4` (if ffmpeg found) **or** `dambreak2D_height_movie.gif` (fallback).
+Outputs: frames/dambreak2D_hcenter_####.png and dambreak2D_height_movie.mp4 (or GIF if ffmpeg not available).
 
-CLI options:
-- `--center_fraction` ∈ [0,1] selects the row (0=bottom, 0.5=mid, 1=top) used for the centreline.
-- `--fps` sets frames per second for the movie.
-- `--animate` toggles MP4/GIF export.
+NOTE (MP4 support): if needed install ffmpeg bindings and system ffmpeg
+pip install -U "imageio[ffmpeg]" imageio-ffmpeg
+sudo apt-get update && sudo apt-get install -y ffmpeg
 
----
+Clean the folder (dry-run first; then actually delete non-essentials)
+python clean_folder.py
+python clean_folder.py --apply
 
-## Notes on geometry & boundaries
-
-- **Walls in z (vertical):** no‑flux/reflective sidewalls.  
-- **Right boundary in x:** no‑flux (reflective).  
-- **Left boundary in x:** open/dam‑release side; initial dam occupies the upstream segment of the channel.  
-- The input timestamps on plots derive from `T_START` and `DT_OUTPUT` in `IMEX_SfloW2D.inp` (the post‑processor reads them to compute real time).
-
----
-
-## Cleaning the folder
-Dry‑run first, then confirm:
-```bash
-python clean_folder.py              # dry run (shows keep/delete)
-python clean_folder.py --apply      # asks to type DELETE
-# include hidden files (danger!)
-python clean_folder.py --apply --include-hidden
-```
-
----
-
-## Troubleshooting
-
-- **Movie error / TIFF writer:** install ffmpeg support:
-  ```bash
-  pip install -U "imageio[ffmpeg]" imageio-ffmpeg
-  sudo apt-get install -y ffmpeg   # on Ubuntu/WSL
-  ```
-- **No height variable found:** ensure your NetCDF contains a 3‑D height/thickness variable; otherwise extend `height_summary_nc.py` with the exact name via a small edit where candidates are chosen.
-- **Weird time axis:** the script falls back to `t = T_START + i*DT_OUTPUT` if the file lacks a `time` variable.
-- **Centreline seems wrong:** check `--center_fraction` and that x/y axes in your NetCDF align with expectations (H is assumed `(time, y, x)`).
-
----
-
-**Attribution:** scripts authored for IMEX/SfloW2D dam‑break use by ECP_BREARD.
+Geometry & boundaries: side walls are no-flux; right boundary (x-max) is no-flux; initial dam occupies the upstream segment. Plots enforce 1:1 axis scale to avoid vertical stretching; the bed is shown as a darker grey fill under the blue free-surface line.
