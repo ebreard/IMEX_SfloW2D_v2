@@ -1,0 +1,7 @@
+frames/
+*.mp4
+*.gif
+*.nc
+*_hcenter_*.png
+*.p_2d
+*.q_2d
