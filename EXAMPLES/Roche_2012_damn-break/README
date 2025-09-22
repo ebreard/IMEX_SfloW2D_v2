@@ -7,7 +7,9 @@ Scripts used: create_dambreak_static.py (setup + IMEX_SfloW2D.inp), height_summa
 Setup script arguments (create_dambreak_static.py): channel-length (m) = total x-length; channel-width (m) = y-width; nx, ny = grid cells; bed-length (m) = initial dam thickness in x; bed-height (m) = initial dam height in z; run-name = output stem.
 
 Generate setup (example: 3.0 m channel, 0.15 m width, dam 0.20 m × 0.40 m at the left)
-python create_dambreak_static.py --channel-length 3.0 --channel-width 0.15 --nx 600 --ny 60 --bed-length 0.20 --bed-height 0.40 --run-name dambreak2D
+
+Run:    python create_dambreak_static.py 600 60 3.0 0.15 0.20 0.40 0.6 300 true
+
 Writes: IMEX_SfloW2D.inp, topography_dem.asc, example_2D_0000.q_2d (and a preview PNG).
 
 Link solver in this folder (once)
