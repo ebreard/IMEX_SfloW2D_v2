@@ -2795,226 +2795,190 @@ CONTAINS
   !
   !******************************************************************************
 
-  SUBROUTINE eval_expl_terms( Bprimej_x, Bprimej_y, Bsecondj_xx , Bsecondj_xy , &
-       Bsecondj_yy, grav_coeff, d_grav_coeff_dx , d_grav_coeff_dy , source_xy , &
-       qpj, expl_term, time, cell_fract_jk )
+!******************************************************************************
+SUBROUTINE eval_expl_terms( Bprimej_x, Bprimej_y, Bsecondj_xx , Bsecondj_xy , &
+     Bsecondj_yy, grav_coeff, d_grav_coeff_dx , d_grav_coeff_dy , source_xy , &
+     qpj, expl_term, time, cell_fract_jk, dt )  ! ADD dt here
+
+  USE parameters_2d, ONLY : vel_source , T_source , alphas_source ,            &
+       alphal_source , time_param , bottom_radial_source_flag , alphag_source, &
+       pore_pressure_flag , pore_pres_fract
+  IMPLICIT NONE
+
+  REAL(wp), INTENT(IN)  :: Bprimej_x
+  REAL(wp), INTENT(IN)  :: Bprimej_y
+  REAL(wp), INTENT(IN)  :: Bsecondj_xx
+  REAL(wp), INTENT(IN)  :: Bsecondj_xy
+  REAL(wp), INTENT(IN)  :: Bsecondj_yy
+  REAL(wp), INTENT(IN)  :: grav_coeff
+  REAL(wp), INTENT(IN)  :: d_grav_coeff_dx
+  REAL(wp), INTENT(IN)  :: d_grav_coeff_dy
+  REAL(wp), INTENT(IN)  :: source_xy
+  REAL(wp), INTENT(IN)  :: qpj(n_vars+2)      !< local physical variables
+  REAL(wp), INTENT(OUT) :: expl_term(n_eqns)  !< local explicit forces
+  REAL(wp), INTENT(IN)  :: time
+  REAL(wp), INTENT(IN)  :: cell_fract_jk
+  REAL(wp), INTENT(IN)  :: dt                 ! ADD THIS
+
+  REAL(wp) :: r_h, r_u, r_v, r_Ri
+  REAL(wp) :: r_rho_m, r_rho_c, r_rho_g(n_add_gas), r_red_grav
+  REAL(wp) :: r_sp_heat_mix, r_sp_heat_c
+  REAL(wp) :: t_rem, t_coeff, h_dot
+  REAL(wp) :: r_tilde_grav, centr_force_term
+  REAL(wp) :: qp_source(n_vars+2)
+  LOGICAL  :: sp_heat_flag
+
+ ! ECP BREARD - Variables for pore pressure source
+  INTEGER :: ipore_s, ipore_e, ip
+  REAL(wp) :: exc_pore_pres_inlet
+  REAL(wp) :: compensation_factor
+  REAL(wp) :: exc_pore_pres_target
+  REAL(wp) :: current_exc_pore_pres, deficit
+ ! ECP BREARD - END
+
+  sp_heat_flag = .TRUE.
+  expl_term(1:n_eqns) = 0.0_wp
+
+  IF ( ( qpj(1) .LE. EPSILON(1.0_wp) ) .AND. ( cell_fract_jk .EQ. 0.0_wp ) ) RETURN
+
+  r_h = qpj(1)
+  r_u = qpj(n_vars+1)
+  r_v = qpj(n_vars+2)
+
+  CALL mixt_var(qpj, r_Ri, r_rho_m, r_rho_c, r_red_grav, sp_heat_flag,         &
+       r_sp_heat_c, r_sp_heat_mix)
+
+  IF ( curvature_term_flag ) THEN
+     centr_force_term = Bsecondj_xx * r_u**2 + 2.0_wp*Bsecondj_xy*r_u*r_v + Bsecondj_yy*r_v**2
+  ELSE
+     centr_force_term = 0.0_wp
+  END IF
+
+  r_tilde_grav = r_red_grav + centr_force_term
+
+  ! units of dqc(2)/dt [kg m-1 s-2]
+  expl_term(2) = - grav_coeff * r_rho_m * r_tilde_grav * r_h * Bprimej_x       &
+       + 0.5_wp * r_rho_m * r_red_grav * r_h**2 * d_grav_coeff_dx
+  ! units of dqc(3)/dt [kg m-1 s-2]
+  expl_term(3) = - grav_coeff * r_rho_m * r_tilde_grav * r_h * Bprimej_y       &
+       + 0.5_wp * r_rho_m * r_red_grav * r_h**2 * d_grav_coeff_dy
+
+  IF ( energy_flag ) THEN
+     expl_term(4) = expl_term(2)*r_u + expl_term(3)*r_v
+  ELSE
+     expl_term(4) = 0.0_wp
+  END IF
+
+  ! ----------- ADDITIONAL EXPLICIT TERMS FOR BOTTOM RADIAL SOURCE ------------
+  IF ( ( .NOT.bottom_radial_source_flag ) .OR. ( cell_fract_jk .EQ. 0.0_wp ) ) RETURN
+
+  t_rem = MOD( time + time_param(4) , time_param(1) )
+
+  IF ( time_param(3) .EQ. 0.0_wp ) THEN
+     IF ( t_rem .LE. time_param(2) ) THEN
+        t_coeff = 1.0_wp
+     ELSE
+        t_coeff = 0.0_wp
+     END IF
+  ELSE
+     IF ( t_rem .LE. time_param(3) ) THEN
+        t_coeff = ( t_rem / time_param(3) )
+     ELSEIF ( t_rem .LE. time_param(2) - time_param(3) ) THEN
+        t_coeff = 1.0_wp
+     ELSEIF ( t_rem .LE. time_param(2) ) THEN
+        t_coeff = 1.0_wp - ( t_rem - time_param(2) + time_param(3) ) / time_param(3)
+     ELSE
+        t_coeff = 0.0_wp
+     END IF
+  END IF
+
+  h_dot = cell_fract_jk * vel_source
+
+  qp_source(1) = 1.0_wp
+  qp_source(2) = 0.0_wp
+  qp_source(3) = 0.0_wp
+  qp_source(4) = T_source
+
+  IF ( alpha_flag ) THEN
+     qp_source(5:4+n_solid) = alphas_source(1:n_solid)
+     qp_source(4+n_solid+1:4+n_solid+n_add_gas) = alphag_source(1:n_add_gas)
+     IF ( gas_flag .AND. liquid_flag ) qp_source(n_vars) = alphal_source
+  ELSE
+     qp_source(5:4+n_solid) = alphas_source(1:n_solid) * qp_source(1)
+     qp_source(4+n_solid+1:4+n_solid+n_add_gas) = alphag_source(1:n_add_gas) * qp_source(1)
+     IF ( gas_flag .AND. liquid_flag ) qp_source(n_vars) = alphal_source * qp_source(1)
+  END IF
+
+  ! Source term transport stoc equation
+  qp_source(5+n_solid+n_add_gas:4+n_solid+n_add_gas+n_stoch_vars) = 0.0_wp
+  qp_source(5+n_solid+n_add_gas+n_stoch_vars:4+n_solid+n_add_gas+n_stoch_vars+ &
+       n_pore_vars) = 0.0_wp
+  qp_source(n_vars+1) = 0.0_wp
+  qp_source(n_vars+2) = 0.0_wp
+
+  CALL mixt_var(qp_source, r_Ri, r_rho_m, r_rho_c, r_red_grav, sp_heat_flag,    &
+       r_sp_heat_c, r_sp_heat_mix)
+
+  expl_term(1) = expl_term(1) + t_coeff * h_dot * r_rho_m
+  expl_term(2) = expl_term(2) + 0.0_wp
+  expl_term(3) = expl_term(3) + 0.0_wp
+
+  IF ( energy_flag ) THEN
+     expl_term(4) = expl_term(4) + t_coeff * h_dot * r_rho_m * r_sp_heat_mix * T_source
+  ELSE
+     expl_term(4) = expl_term(4) + t_coeff * h_dot * r_rho_m * r_sp_heat_mix * T_source
+  END IF
+
+  expl_term(5:4+n_solid) = expl_term(5:4+n_solid) + t_coeff * h_dot            &
+       * alphas_source(1:n_solid) * rho_s(1:n_solid)
+
+  r_rho_g(1:n_add_gas) = pres / ( sp_gas_const_g(1:n_add_gas) * T_source )
+  expl_term(4+n_solid+1:4+n_solid+n_add_gas) = expl_term(4+n_solid+1:4+n_solid+n_add_gas) &
+       + t_coeff * h_dot * alphag_source(1:n_add_gas) * r_rho_g(1:n_add_gas)
+
+  IF ( gas_flag .AND. liquid_flag ) THEN
+     expl_term(n_vars) = expl_term(n_vars) + t_coeff * h_dot * alphal_source * rho_l
+  END IF
+
+! ECP BREARD - Pore pressure handling
+  IF ( pore_pressure_flag ) THEN
+
+     ipore_s = 5 + n_solid + n_add_gas + n_stoch_vars
+     ipore_e = 4 + n_solid + n_add_gas + n_stoch_vars + n_pore_vars
+     
+     ! Target excess pore pressure as fraction of lithostatic
+     ! Using r_red_grav for consistency with buoyancy effects
+     exc_pore_pres_target = pore_pres_fract * r_rho_m * r_red_grav * r_h
+     
+     ! At source cells: add pore pressure with incoming material
+     IF ( cell_fract_jk .GT. 0.0_wp ) THEN
+        DO ip = ipore_s, ipore_e
+           expl_term(ip) = expl_term(ip) + t_coeff * h_dot * r_rho_m * exc_pore_pres_target
+        END DO
+     END IF
+     
+     ! Everywhere with material: maintain fraction of lithostatic pressure
+     IF ( r_h .GT. 1.0E-10_wp ) THEN
+        
+        ! Get current excess pore pressure
+        current_exc_pore_pres = qpj(ipore_s)
+        
+        ! Calculate deficit from target (which is pore_pres_fract * lithostatic)
+        deficit = exc_pore_pres_target - current_exc_pore_pres
+        
+        ! Add correction term to maintain pore_pres_fract * lithostatic
+        DO ip = ipore_s, ipore_e
+           ! Relax toward target with time scale = dt
+           expl_term(ip) = expl_term(ip) + r_rho_m * r_h * deficit / dt
+        END DO
+     END IF
+     
+  END IF
+  ! ECP BREARD - END
+
+  RETURN
+END SUBROUTINE eval_expl_terms
 
-    USE parameters_2d, ONLY : vel_source , T_source , alphas_source ,           &
-         alphal_source , time_param , bottom_radial_source_flag , alphag_source,&
-         pore_pressure_flag , pore_pres_fract
-
-
-    IMPLICIT NONE
-
-    REAL(wp), INTENT(IN) :: Bprimej_x
-    REAL(wp), INTENT(IN) :: Bprimej_y
-    REAL(wp), INTENT(IN) :: Bsecondj_xx
-    REAL(wp), INTENT(IN) :: Bsecondj_xy
-    REAL(wp), INTENT(IN) :: Bsecondj_yy
-    REAL(wp), INTENT(IN) :: grav_coeff
-    REAL(wp), INTENT(IN) :: d_grav_coeff_dx
-    REAL(wp), INTENT(IN) :: d_grav_coeff_dy
-
-    REAL(wp), INTENT(IN) :: source_xy
-
-    REAL(wp), INTENT(IN) :: qpj(n_vars+2)      !< local physical variables 
-    REAL(wp), INTENT(OUT) :: expl_term(n_eqns) !< local explicit forces 
-
-    REAL(wp), INTENT(IN) :: time
-    REAL(wp), INTENT(IN) :: cell_fract_jk
-
-    REAL(wp) :: r_h          !< real-value flow thickness
-    REAL(wp) :: r_u          !< real-value x-velocity
-    REAL(wp) :: r_v          !< real-value y-velocity
-    REAL(wp) :: r_Ri         !< real-value Richardson number
-    REAL(wp) :: r_rho_m      !< real-value mixture density [kg/m3]
-    REAL(wp) :: r_rho_c      !< real-value carrier phase density [kg/m3]
-    REAL(wp) :: r_rho_g(n_add_gas) !< real-value add.gas densities [kg/m3]
-    REAL(wp) :: r_red_grav   !< real-value reduced gravity
-
-    REAL(wp) :: r_sp_heat_mix !< real_value mixture specific heat
-    REAL(wp) :: r_sp_heat_c
-
-    REAL(wp) :: t_rem
-    REAL(wp) :: t_coeff
-    REAL(wp) :: h_dot
-
-    REAL(wp) :: r_tilde_grav
-    REAL(wp) :: centr_force_term
-
-    REAL(wp) :: qp_source(n_vars+2)
-
-    LOGICAL :: sp_heat_flag
-
-    sp_heat_flag = .TRUE.
-
-    expl_term(1:n_eqns) = 0.0_wp
-
-    IF ( ( qpj(1) .LE. EPSILON(1.0_wp) ) .AND. ( cell_fract_jk .EQ. 0.0_wp ) )  &
-         RETURN
-
-    r_h = qpj(1)
-    r_u = qpj(n_vars+1)
-    r_v = qpj(n_vars+2)
-
-    CALL mixt_var(qpj,r_Ri,r_rho_m,r_rho_c,r_red_grav,sp_heat_flag,r_sp_heat_c, &
-         r_sp_heat_mix)
-
-    IF ( curvature_term_flag ) THEN
-
-       centr_force_term = Bsecondj_xx * r_u**2 + 2.0_wp*Bsecondj_xy*r_u * r_v + &
-            Bsecondj_yy * r_v**2
-
-    ELSE
-
-       centr_force_term = 0.0_wp
-
-    END IF
-
-    r_tilde_grav = r_red_grav + centr_force_term
-
-    ! units of dqc(2)/dt [kg m-1 s-2]
-    expl_term(2) = - grav_coeff * r_rho_m * r_tilde_grav * r_h * Bprimej_x      &
-         + 0.5_wp * r_rho_m * r_red_grav * r_h**2 * d_grav_coeff_dx 
-
-    ! units of dqc(3)/dt [kg m-1 s-2]
-    expl_term(3) = - grav_coeff * r_rho_m * r_tilde_grav * r_h * Bprimej_y      &
-         + 0.5_wp * r_rho_m * r_red_grav * r_h**2 * d_grav_coeff_dy
-
-    IF ( energy_flag ) THEN
-
-       expl_term(4) = expl_term(2) * r_u + expl_term(3) * r_v
-       
-    ELSE
-
-       expl_term(4) = 0.0_wp
-
-    END IF
-
-    ! ----------- ADDITIONAL EXPLICIT TERMS FOR BOTTOM RADIAL SOURCE ------------ 
-
-    IF ( ( .NOT.bottom_radial_source_flag ) .OR.                                &
-         ( cell_fract_jk .EQ. 0.0_wp ) ) RETURN
-
-    t_rem = MOD( time + time_param(4) , time_param(1) )
-
-    IF ( time_param(3) .EQ. 0.0_wp ) THEN
-
-       IF ( t_rem .LE. time_param(2) ) THEN
-
-          t_coeff = 1.0_wp
-
-       ELSE
-
-          t_coeff = 0.0_wp
-
-       END IF
-
-    ELSE
-
-       IF ( t_rem .LE. time_param(3) ) THEN
-
-          t_coeff = ( t_rem / time_param(3) ) 
-
-       ELSEIF ( t_rem .LE. time_param(2) - time_param(3) ) THEN
-
-          t_coeff = 1.0_wp
-
-       ELSEIF ( t_rem .LE. time_param(2) ) THEN
-
-          t_coeff = 1.0_wp - ( t_rem - time_param(2) + time_param(3) ) /        &
-               time_param(3)
-
-       ELSE
-
-          t_coeff = 0.0_wp
-
-       END IF
-
-    END IF
-
-    h_dot = cell_fract_jk * vel_source
-
-    qp_source(1) = 1.0_wp
-    qp_source(2) = 0.0_wp
-    qp_source(3) = 0.0_wp
-    qp_source(4) = t_source
-
-    IF ( alpha_flag ) THEN
-
-       qp_source(5:4+n_solid) = alphas_source(1:n_solid)
-       qp_source(4+n_solid+1:4+n_solid+n_add_gas) = alphag_source(1:n_add_gas)
-       IF ( gas_flag .AND. liquid_flag ) qp_source(n_vars) = alphal_source
-
-    ELSE
-
-       qp_source(5:4+n_solid) = alphas_source(1:n_solid) * qp_source(1)
-       qp_source(4+n_solid+1:4+n_solid+n_add_gas) = alphag_source(1:n_add_gas)  &
-            * qp_source(1)
-       IF ( gas_flag .AND. liquid_flag ) qp_source(n_vars) = alphal_source      &
-            * qp_source(1)
-
-    END IF
-
-    ! Source term transport stoc equation
-    qp_source(5+n_solid+n_add_gas:4+n_solid+n_add_gas+n_stoch_vars) = 0.0_wp
-
-    qp_source(5+n_solid+n_add_gas+n_stoch_vars:4+n_solid+n_add_gas+n_stoch_vars+&
-         n_pore_vars) = 0.0_wp
-
-    qp_source(n_vars+1) = 0.0_wp
-    qp_source(n_vars+2) = 0.0_wp
-
-
-    CALL mixt_var(qp_source,r_Ri,r_rho_m,r_rho_c,r_red_grav,sp_heat_flag,r_sp_heat_c, &
-         r_sp_heat_mix)
-
-    expl_term(1) = expl_term(1) + t_coeff * h_dot * r_rho_m
-    expl_term(2) = expl_term(2) + 0.0_wp
-    expl_term(3) = expl_term(3) + 0.0_wp
-
-    IF ( energy_flag ) THEN
-
-       expl_term(4) = expl_term(4) + t_coeff * h_dot * r_rho_m * r_sp_heat_mix  &
-            * t_source
-
-    ELSE
-
-       expl_term(4) = expl_term(4) + t_coeff * h_dot * r_rho_m * r_sp_heat_mix  &
-            * t_source
-
-    END IF
-
-    expl_term(5:4+n_solid) = expl_term(5:4+n_solid) + t_coeff                   &
-         * h_dot * alphas_source(1:n_solid) * rho_s(1:n_solid)
-
-    r_rho_g(1:n_add_gas) = pres / ( sp_gas_const_g(1:n_add_gas) * t_source )
-
-    expl_term(4+n_solid+1:4+n_solid+n_add_gas) =                                &
-         expl_term(4+n_solid+1:4+n_solid+n_add_gas) + t_coeff                   &
-         * h_dot * alphag_source(1:n_add_gas) * r_rho_g(1:n_add_gas)
-
-    IF ( gas_flag .AND. liquid_flag ) THEN
-
-       expl_term(n_vars) = expl_term(n_vars) + t_coeff * h_dot * alphal_source  &
-            * rho_l
-
-    END IF
-
-    IF ( pore_pressure_flag ) THEN
-
-       ! we multiply the pore pressure inlet rate by the rate for q1
-       expl_term(5+n_solid+n_add_gas+n_stoch_vars:4+n_solid+n_add_gas +       &
-            n_stoch_vars+n_pore_vars) = expl_term(5+n_solid+n_add_gas +       &
-            n_stoch_vars:4+n_solid+n_add_gas + n_stoch_vars+n_pore_vars) +    &
-            t_coeff * cell_fract_jk * vel_source * r_rho_m * grav *           &
-            pore_pres_fract * ( h_dot * r_rho_m )
-
-    END IF
-    
-    RETURN
-
-  END SUBROUTINE eval_expl_terms
 
 
   !******************************************************************************
@@ -3138,7 +3102,13 @@ CONTAINS
     COMPLEX(wp) :: gamma
     COMPLEX(wp) :: rho_g(n_add_gas)
     REAL(wp) :: h_threshold
-
+    
+    ! BREARD
+    REAL(wp), PARAMETER :: mu0_air = 1.716e-5_wp     ! Pa·s at T0
+    REAL(wp), PARAMETER :: T0_air  = 273.15_wp       ! K
+    REAL(wp), PARAMETER :: S_air   = 110.4_wp        ! K
+    REAL(wp) :: nu_gas
+    REAL(wp) :: mu_gas
     INTEGER :: i
 
     !--- Lahars rheology model variables
@@ -3416,10 +3386,15 @@ CONTAINS
 
        porosity = 1.0_wp - SUM(alphas)
        
-       ! Eq. 7 from Gueugneau et al, 2017 
-       D_coeff = hydraulic_permeability / ( porosity * kin_visc_a * rho_gas *   &
-            gas_compressibility )
+       ! BREARD  added effect of gas temperature in flow on viscosity of the fluid
+       !mu_gas = mu0_air * ( (T/T0_air)**1.5_wp ) * ( (T0_air + S_air) / (T + S_air) )
+       !nu_gas = mu_gas / rho_gas     ! kinematic viscosity of the GAS at (p,T)
+       ! BREARD
 
+       ! Eq. 7 from Gueugneau et al, 2017 
+       !D_coeff = hydraulic_permeability / ( porosity * nu_gas * rho_gas *   &
+       !     gas_compressibility )
+        D_coeff = 0.015
        ! Equation 12 from Gueugneau et al, 2017
        IF ( ( REAL(exc_pore_pres(1)) .GT. 0.0_wp )                              &
             .AND. ( REAL(h) .GT. 0.0_wp) ) THEN

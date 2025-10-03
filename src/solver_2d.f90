@@ -1283,13 +1283,13 @@ CONTAINS
                 qp_rk(4,j,k,i_RK) = T_ambient
 
              END IF
-
+ !ECP BREARD added dt
              ! Eval gravity term and radial bottom source terms
              CALL eval_expl_terms( B_prime_x(j,k) , B_prime_y(j,k) ,            &
                   B_second_xx(j,k) , B_second_xy(j,k) , B_second_yy(j,k) ,      &
                   grav_coeff(j,k), d_grav_coeff_dx(j,k) , d_grav_coeff_dx(j,k) ,&
                   source_xy(j,k), qp_rk(1:n_vars+2,j,k,i_RK),                   &
-                  expl_terms(1:n_eqns,j,k,i_RK), t, cell_source_fractions(j,k) )
+                  expl_terms(1:n_eqns,j,k,i_RK), t, cell_source_fractions(j,k),dt )
   
           END IF
 

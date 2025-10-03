@@ -1,0 +1,75 @@
+#ECP BREARD
+
+This simulation injects from a circular source material at constant rate.
+
+# - Needs scripts in this repo:
+  - generate_hole_dem_and_input.py    (create ESRI-ASCII DEM **and** IMEX_SfloW2D.inp from *template)
+  - excess_pp_compare_v3.py           (read NetCDF, compute theory, and plot pore pressure over the **central 4 cells**)
+  - IMEX_SfloW2D.template
+# 1. Geometry/static fields (builds a 2-D bed with no-flux walls from a template)
+Use this helper to generate a DEM with a circular hole and to instantiate IMEX_SfloW2D.inp
+from IMEX_SfloW2D.template The grid is center-origin; the **source is placed on a cell center**.
+This guarantees that the 2×2 patch used later is exactly the four cells surrounding the source center.
+
+Command:
+python generate_hole_dem_and_input.py
+
+here are parameters to change in the *py file, for a 20 m pit in a flat surface located at 2000 m. 
+P = {
+    "ncols": 100,
+    "nrows": 100,
+    "cellsize": 10.0,
+    "xllcorner": 715000.0,
+    "yllcorner": 1586002.0,
+    "base_elev": 2000,
+    "hole_depth": 20.0,
+    "inlet_diameter": 300.0,
+    "template_inp": "IMEX_SfloW2D.template",
+    "out_inp":      "IMEX_SfloW2D.inp",
+    "dem_file":     "hole_dem.asc",
+}
+
+
+It expects the template file `IMEX_SfloW2D.template` in the working directory.  
+It writes:
+- hole_dem.asc (ESRI ASCII topography with a central circular hole)
+- IMEX_SfloW2D.inp (updated with `TOPOGRAPHY_FILE`, `X0`, `Y0`, `CELL_SIZE`, grid size, and source keys)
+
+# 2. Run your model:
+Create a symbolic link first
+
+ln -s ../../bin/IMEX_SfloW2D .
+
+Then run the solver
+
+./IMEX_SfloW2D 
+
+This will generate exampleFuego.nc
+
+# 3. Compare IMEX results with the first-term diffusion law (Gueugneau et al., 2017, GRL)
+**Preferred one-step workflow** (reads NetCDF directly and uses `IMEX_SfloW2D.inp` to locate
+the source, pick the **central 2×2 cell patch**, and determine `t2`):
+NOTE YOU NEED TO BE SURE WHAT YOU D VALUE IS, if you are testing the pile diffusion part in a "pit" for instance. 
+
+If you need to test the PP input at the center of the pile, the D value is not important. 
+
+python excess_pp_compare_v3.py exampleFuego.nc --D 0.0138   (this using the D value from the *inp test case)
+
+Optional flags:
+--rho_mix 1600          # override mixture density (kg/m^3)  
+--varp pore_pressure    # pressure variable name in the NetCDF/HDF5  
+--varh h                # thickness variable name  
+
+Outputs:
+- exampleFuego_excess_compare_v3.png           (measured vs expected excess pore pressure)
+- exampleFuego_h_timeseries.png               (thickness h(t) on the **2×2 source patch**)
+- exampleFuego_constants_timeseries.png        (ρ_mix, g, f lines)
+- exampleFuego_excess_compare_v3.csv           (time series of measured/expected EP, h(t), constants)
+
+Notes:
+- --D is in m^2/s and must be positive.  
+- IMEX_SfloW2D.inp must be in the current working directory.  
+- The script uses PORE_PRES_FRACT (f) and mixture density ρ_mix from the INP (unless overridden) and
+  applies: pre-t2 → ρ_mix·g·f·h(t); post-t2 → exponential decay with λ = (π/2)^2·D/h(t2)^2.
+
+python clean_folder.py --apply cleans the files *inp and *nc etc and *csv and *png. It has a safe guard... 
