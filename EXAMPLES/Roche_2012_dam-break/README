@@ -19,7 +19,7 @@ Where:
 - PLOT_FLAG = true or false for PNG output
 
 Example:
-python create_dambreak.py 600 60 3.0 0.15 0.20 0.40 0.6 300 1.0 true
+python create_dambreak.py 300 15 3.0 0.15 0.20 0.40 0.6 300 1.0 true
 
 Writes: IMEX_SfloW2D.inp, topography_dem.asc, example_2D_0000.q_2d (and a preview PNG).
 
