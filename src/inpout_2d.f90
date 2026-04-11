@@ -1912,6 +1912,20 @@ CONTAINS
 
     END IF
 
+    ! Keep configuration explicit and consistent:
+    ! settling/deposition requires topography updates to morph B_cent.
+    IF ( settling_flag .AND. ( .NOT.topo_change_flag ) ) THEN
+
+       WRITE(*,*)
+       WRITE(*,*) 'ERROR: inconsistent configuration in input file'
+       WRITE(*,*) 'SETTLING_FLAG = .TRUE. requires TOPO_CHANGE_FLAG = .TRUE.'
+       WRITE(*,*) 'Otherwise deposition is computed but cannot update B_cent.'
+       WRITE(*,*) 'Please set TOPO_CHANGE_FLAG = .TRUE. in NEWRUN_PARAMETERS.'
+       WRITE(*,*)
+       STOP
+
+    END IF
+
 
     IF ( restart ) THEN
 
@@ -7675,4 +7689,3 @@ CONTAINS
   END SUBROUTINE check
   
 END MODULE inpout_2d
-

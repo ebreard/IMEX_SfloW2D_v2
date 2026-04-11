@@ -35,6 +35,7 @@ PROGRAM IMEX_SfloW2D
   USE geometry_2d, ONLY : init_grid
   USE geometry_2d, ONLY : init_source
   USE geometry_2d, ONLY : topography_reconstruction
+  USE geometry_2d, ONLY : topography_zones
 
   USE geometry_2d, ONLY : dx,dy,B_cent
   ! USE geometry_2d, ONLY : comp_cells_x,comp_cells_y
@@ -81,6 +82,7 @@ PROGRAM IMEX_SfloW2D
   USE parameters_2d, ONLY : t_steady
   USE parameters_2d, ONLY : dt0
   USE parameters_2d, ONLY : topo_change_flag
+  USE parameters_2d, ONLY : liquid_vaporization_flag
   USE parameters_2d, ONLY : verbose_level
   USE parameters_2d, ONLY : n_solid
   USE parameters_2d, ONLY : n_vars
@@ -218,7 +220,10 @@ PROGRAM IMEX_SfloW2D
 
   CALL check_solve(.TRUE.)
 
-  IF ( topo_change_flag ) CALL topography_reconstruction
+  IF ( topo_change_flag ) THEN
+     CALL topography_reconstruction
+     IF ( liquid_vaporization_flag ) CALL topography_zones
+  END IF
 
   IF ( verbose_level .GE. 0 ) THEN
 
@@ -384,7 +389,10 @@ PROGRAM IMEX_SfloW2D
 
      CALL update_erosion_deposition_cell(dt)
      
-     IF ( topo_change_flag ) CALL topography_reconstruction
+     IF ( topo_change_flag ) THEN
+        CALL topography_reconstruction
+        IF ( liquid_vaporization_flag ) CALL topography_zones
+     END IF
 
      t = t+dt
 
